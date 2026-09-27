@@ -17,9 +17,19 @@ class Settings(BaseSettings):
             v = os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL") or "postgresql+asyncpg://shiii_user:shiii_password@localhost:5432/shiii_db"
         if isinstance(v, str):
             if v.startswith("postgres://"):
-                return v.replace("postgres://", "postgresql+asyncpg://", 1)
+                v = v.replace("postgres://", "postgresql+asyncpg://", 1)
             elif v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
-                return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+                v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+            
+            # Clean up asyncpg-incompatible query parameters (sslmode, channel_binding)
+            if "?" in v:
+                import urllib.parse
+                parsed = urllib.parse.urlparse(v)
+                query_params = urllib.parse.parse_qs(parsed.query)
+                query_params.pop("sslmode", None)
+                query_params.pop("channel_binding", None)
+                new_query = urllib.parse.urlencode(query_params, doseq=True)
+                v = urllib.parse.urlunparse(parsed._replace(query=new_query))
         return v
     
     # JWT Auth
