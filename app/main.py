@@ -64,3 +64,12 @@ def health_check():
         "voice": settings.TTS_VOICE,
         "model": settings.GEMINI_MODEL
     }
+
+@app.get("/debug-headers")
+def debug_headers(request: Request):
+    return {
+        "headers": dict(request.headers),
+        "scope_path": request.scope.get("path"),
+        "url": str(request.url)
+    }
+
