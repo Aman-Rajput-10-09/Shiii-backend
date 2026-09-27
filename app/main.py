@@ -28,16 +28,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Vercel URL rewrite path normalizer
-@app.middleware("http")
-async def vercel_path_normalizer(request: Request, call_next):
-    matched_path = request.headers.get("x-matched-path")
-    if matched_path and not matched_path.startswith("/api/index") and not matched_path.startswith("/main.py"):
-        request.scope["path"] = matched_path
-    elif request.scope["path"] in ["/api/index.py", "/api/index.py/", "/main.py", "/main.py/"]:
-        request.scope["path"] = "/"
-    return await call_next(request)
-
 # Enable CORS for Android / Web testing
 app.add_middleware(
     CORSMiddleware,
@@ -63,13 +53,5 @@ def health_check():
         "service": "Shiii AI Emissary",
         "voice": settings.TTS_VOICE,
         "model": settings.GEMINI_MODEL
-    }
-
-@app.get("/debug-headers")
-def debug_headers(request: Request):
-    return {
-        "headers": dict(request.headers),
-        "scope_path": request.scope.get("path"),
-        "url": str(request.url)
     }
 
