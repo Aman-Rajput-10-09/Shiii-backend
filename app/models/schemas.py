@@ -53,6 +53,7 @@ class ChatMessage(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     sender_role = Column(String(20), nullable=False) # "master", "mistress", or "shiii"
     content = Column(Text, nullable=False)
+    english_content = Column(Text, nullable=True)
     audio_path = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     
@@ -70,6 +71,7 @@ class CoupleGroupMessage(Base):
     sender_role = Column(String(20), nullable=False) # "master", "mistress", or "shiii"
     sender_name = Column(String(100), nullable=False)
     content = Column(Text, nullable=False)
+    english_content = Column(Text, nullable=True)
     audio_path = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 

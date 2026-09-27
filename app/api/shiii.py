@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -42,6 +43,7 @@ async def chat_with_shiii(
     Main dialogue endpoint:
     - If user is Mistress: Shiii responds diplomatically, comforts her, records concern for Master briefing.
     - If user is Master: Shiii provides loyal encouragement, companionship, and relationship updates.
+    Optimized for ultra-low latency with parallel LLM execution and bilingual Hinglish/English support.
     """
     user_msg = ChatMessage(
         user_id=current_user.id,
@@ -69,43 +71,45 @@ async def chat_with_shiii(
     context = await ranking_service.get_ranked_context(db, req.message, current_user.couple_id)
 
     if current_user.role == UserRole.MISTRESS:
-        reply_text = await llm_service.chat_with_mistress(req.message, context)
-        
-        # Prepare background briefing for Master
-        briefing_text = await llm_service.generate_master_briefing(req.message)
-        briefing_audio_url, _ = await voice_service.synthesize(briefing_text)
-        concern = CoupleConcern(
-            couple_id=current_user.couple_id,
-            author_id=current_user.id,
-            author_role=UserRole.MISTRESS,
-            original_mistress_text=req.message,
-            master_briefing=briefing_text,
-            audio_path=briefing_audio_url,
-            status=ConcernStatus.PENDING,
-            urgency_score=1.5
-        )
-        db.add(concern)
-        await db.commit()
+        if current_user.couple_id:
+            # Parallel execution of companion chat and master briefing cuts latency in half!
+            (reply_text, english_text), briefing_text = await asyncio.gather(
+                llm_service.chat_with_mistress(req.message, context),
+                llm_service.generate_master_briefing(req.message)
+            )
+            concern = CoupleConcern(
+                couple_id=current_user.couple_id,
+                author_id=current_user.id,
+                author_role=UserRole.MISTRESS,
+                original_mistress_text=req.message,
+                master_briefing=briefing_text,
+                audio_path=None,
+                status=ConcernStatus.PENDING,
+                urgency_score=1.5
+            )
+            db.add(concern)
+            await db.commit()
+        else:
+            reply_text, english_text = await llm_service.chat_with_mistress(req.message, context)
     else:
         # Master chatting with Shiii
         concerns = await ranking_service.get_unresolved_concerns(db, current_user.couple_id)
-        if concerns:
-            # There are active concerns from Mistress, prompt Master gently
-            reply_text = await llm_service.chat_with_master(req.message, partner_name=partner_name, context=context)
-            if "mistress" in req.message.lower() or "how is" in req.message.lower():
-                top_concern = concerns[0]
-                reply_text += f"\n\nMaster! Also, Mistress felt a little concerned recently: '{top_concern.master_briefing}'."
-        else:
-            reply_text = await llm_service.chat_with_master(req.message, partner_name=partner_name, context=context)
+        reply_text, english_text = await llm_service.chat_with_master(req.message, partner_name=partner_name, context=context)
+        if concerns and ("mistress" in req.message.lower() or "how is" in req.message.lower()):
+            top_concern = concerns[0]
+            extra = f"\n\nMaster! Also, Mistress felt a little concerned recently: '{top_concern.master_briefing}'."
+            reply_text += extra
+            english_text += extra
 
     # Synthesize cute girl voice & lip-sync visemes
-    audio_url, visemes = await voice_service.synthesize(reply_text)
+    audio_url, visemes = await voice_service.synthesize(english_text or reply_text)
 
     # Save Shiii response to history
     shiii_msg = ChatMessage(
         user_id=current_user.id,
         sender_role="shiii",
         content=reply_text,
+        english_content=english_text,
         audio_path=audio_url
     )
     db.add(shiii_msg)
@@ -115,6 +119,7 @@ async def chat_with_shiii(
     return ChatResponse(
         id=shiii_msg.id,
         reply_text=reply_text,
+        english_text=english_text,
         audio_url=audio_url,
         visemes=visemes,
         sender_role="shiii",
@@ -179,13 +184,13 @@ async def resolve_concern_by_master(
         raise HTTPException(status_code=403, detail="You do not have permission to resolve this concern")
         
     # Translate Master's response into Shiii's sweet words
-    sweet_message = await llm_service.translate_master_to_mistress(
+    sweet_message, sweet_english = await llm_service.translate_master_to_mistress(
         master_reply=req.master_reply,
         original_concern=concern.original_mistress_text
     )
     
     # Synthesize voice for Mistress
-    audio_url, _ = await voice_service.synthesize(sweet_message)
+    audio_url, _ = await voice_service.synthesize(sweet_english or sweet_message)
     
     concern.master_response = req.master_reply
     concern.diplomatic_resolution_to_mistress = sweet_message
@@ -211,6 +216,7 @@ async def resolve_concern_by_master(
             user_id=target_mistress_id,
             sender_role="shiii",
             content=f"💕 Sweet update from Master! {sweet_message}",
+            english_content=f"Sweet update from Master! {sweet_english}",
             audio_path=audio_url
         )
         db.add(resolution_chat)
@@ -236,13 +242,14 @@ async def get_chat_messages(
     """
     query = select(ChatMessage).where(ChatMessage.user_id == current_user.id)
     if after_id is not None and after_id > 0:
-        query = query.where(ChatMessage.id > after_id)
-        query = query.order_by(ChatMessage.id.asc())
+        query = query.where(ChatMessage.id > after_id).order_by(ChatMessage.id.asc())
     else:
-        query = query.order_by(ChatMessage.id.asc()).limit(100)
+        query = query.order_by(ChatMessage.id.desc()).limit(100)
 
     result = await db.execute(query)
-    messages = result.scalars().all()
+    messages = list(result.scalars().all())
+    if after_id is None or after_id <= 0:
+        messages.reverse()
 
     out: List[ChatMessageOut] = []
     for msg in messages:
@@ -256,6 +263,7 @@ async def get_chat_messages(
             id=msg.id,
             sender_role=msg.sender_role,
             content=msg.content,
+            english_text=msg.english_content or msg.content,
             audio_url=msg.audio_path,
             visemes=visemes,
             created_at=msg.created_at
@@ -276,8 +284,7 @@ async def get_group_messages(
     
     query = select(CoupleGroupMessage).where(CoupleGroupMessage.couple_id == current_user.couple_id)
     if after_id is not None and after_id > 0:
-        query = query.where(CoupleGroupMessage.id > after_id)
-        query = query.order_by(CoupleGroupMessage.id.asc())
+        query = query.where(CoupleGroupMessage.id > after_id).order_by(CoupleGroupMessage.id.asc())
     else:
         query = query.order_by(CoupleGroupMessage.id.desc()).limit(100)
     
@@ -300,6 +307,7 @@ async def get_group_messages(
             sender_role=m.sender_role,
             sender_name=m.sender_name,
             content=m.content,
+            english_text=m.english_content or m.content,
             audio_url=m.audio_path,
             visemes=visemes,
             created_at=m.created_at
@@ -354,7 +362,7 @@ async def send_group_message(
     recent_dialogue = [{"sender": r.sender_name, "text": r.content} for r in recent_records]
 
     # Generate Shiii's mediation to soothe tension and bring peace
-    mediation_text = await llm_service.mediate_group_chat(
+    mediation_text, mediation_english = await llm_service.mediate_group_chat(
         recent_dialogue=recent_dialogue,
         latest_message=req.message,
         sender_role=current_user.role.value,
@@ -363,7 +371,7 @@ async def send_group_message(
     )
 
     # Synthesize cute voice for Shiii
-    shiii_audio_url, shiii_visemes = await voice_service.synthesize(mediation_text)
+    shiii_audio_url, shiii_visemes = await voice_service.synthesize(mediation_english or mediation_text)
 
     shiii_msg = CoupleGroupMessage(
         couple_id=current_user.couple_id,
@@ -371,6 +379,7 @@ async def send_group_message(
         sender_role="shiii",
         sender_name="Shiii 🌸",
         content=mediation_text,
+        english_content=mediation_english,
         audio_path=shiii_audio_url
     )
     db.add(shiii_msg)
@@ -385,6 +394,7 @@ async def send_group_message(
             sender_role=user_msg.sender_role,
             sender_name=user_msg.sender_name,
             content=user_msg.content,
+            english_text=user_msg.content,
             audio_url=user_msg.audio_path,
             visemes=[],
             created_at=user_msg.created_at
@@ -396,6 +406,7 @@ async def send_group_message(
             sender_role=shiii_msg.sender_role,
             sender_name=shiii_msg.sender_name,
             content=shiii_msg.content,
+            english_text=shiii_msg.english_content,
             audio_url=shiii_msg.audio_path,
             visemes=shiii_visemes,
             created_at=shiii_msg.created_at

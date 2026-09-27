@@ -19,6 +19,12 @@ async def lifespan(app: FastAPI):
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            from sqlalchemy import text
+            try:
+                await conn.execute(text("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS english_content TEXT;"))
+                await conn.execute(text("ALTER TABLE couple_group_messages ADD COLUMN IF NOT EXISTS english_content TEXT;"))
+            except Exception as col_err:
+                print(f"[Notice] Column check deferred: {col_err}")
     except Exception as e:
         print(f"[Notice] Database auto-migration deferred or skipped: {e}")
     yield

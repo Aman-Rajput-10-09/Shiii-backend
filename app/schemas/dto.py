@@ -67,6 +67,7 @@ class VisemeCue(BaseModel):
 class ChatResponse(BaseModel):
     id: Optional[int] = None
     reply_text: str
+    english_text: Optional[str] = None
     audio_url: Optional[str] = None
     visemes: List[VisemeCue] = []
     sender_role: str = "shiii"
@@ -77,6 +78,7 @@ class ChatMessageOut(BaseModel):
     id: int
     sender_role: str
     content: str
+    english_text: Optional[str] = None
     audio_url: Optional[str] = None
     visemes: List[VisemeCue] = []
     created_at: datetime
@@ -127,6 +129,7 @@ class GroupMessageOut(BaseModel):
     sender_role: str
     sender_name: str
     content: str
+    english_text: Optional[str] = None
     audio_url: Optional[str] = None
     visemes: List[VisemeCue] = []
     created_at: datetime
