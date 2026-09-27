@@ -23,6 +23,8 @@ async def lifespan(app: FastAPI):
             try:
                 await conn.execute(text("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS english_content TEXT;"))
                 await conn.execute(text("ALTER TABLE couple_group_messages ADD COLUMN IF NOT EXISTS english_content TEXT;"))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_direct_msgs_couple_id_id ON couple_direct_messages(couple_id, id);"))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_direct_msgs_unread ON couple_direct_messages(couple_id, receiver_id, is_read);"))
             except Exception as col_err:
                 print(f"[Notice] Column check deferred: {col_err}")
     except Exception as e:
