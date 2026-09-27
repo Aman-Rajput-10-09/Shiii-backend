@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     
     # LLM (Gemini)
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
     
     # Voice (Edge-TTS)
     TTS_VOICE: str = "en-US-AnaNeural"
