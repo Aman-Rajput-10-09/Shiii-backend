@@ -1,0 +1,11 @@
+local_venv.nosync
+venv
+venv 2
+server.log
+sample.txt
+test.mp3
+__pycache__
+*.pyc
+*.pyo
+.env
+.pytest_cache
