@@ -1,6 +1,6 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
@@ -27,6 +27,16 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     lifespan=lifespan
 )
+
+# Vercel URL rewrite path normalizer
+@app.middleware("http")
+async def vercel_path_normalizer(request: Request, call_next):
+    matched_path = request.headers.get("x-matched-path")
+    if matched_path and not matched_path.startswith("/api/index") and not matched_path.startswith("/main.py"):
+        request.scope["path"] = matched_path
+    elif request.scope["path"] in ["/api/index.py", "/api/index.py/", "/main.py", "/main.py/"]:
+        request.scope["path"] = "/"
+    return await call_next(request)
 
 # Enable CORS for Android / Web testing
 app.add_middleware(
